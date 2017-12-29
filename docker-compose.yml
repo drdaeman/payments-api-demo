@@ -1,0 +1,35 @@
+version: "3.1"
+
+volumes:
+  postgresql_data: {}
+
+services:
+  postgres:
+    image: postgres:10-alpine
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_DB: api_demo
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+
+  web:
+    image: drdaeman/coins-api-demo:local-dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEBUG: "true"
+    environment:
+      SECRET_KEY: not-secret-at-all/do-not-use-in-production
+      DATABASE_URL: postgres://demo@postgres/api_demo
+    volumes:
+      - .:/srv/app
+    command: |
+      sh -c "
+        python manage.py collectstatic --noinput &&
+        exec gunicorn api_demo.wsgi:application --reload
+      "
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres

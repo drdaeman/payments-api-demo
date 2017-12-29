@@ -1,0 +1,5 @@
+# Use automatic end-of-line conversion
+*  text=auto
+
+# Force .sh files to use UNIX line endings (LF only)
+*.sh  text=auto eol=lf

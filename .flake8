@@ -1,0 +1,23 @@
+[flake8]
+exclude =
+    .git,
+    .virtualenv,
+    .tox,
+    __pycache__,
+    static,
+    templates,
+    */migrations/*,
+    *~
+max-line-length = 79
+
+application-import-names =
+    api_demo
+
+ignore =
+    # D100: Missing docstring in public module
+    D100,
+    # D104: Missing docstring in public package
+    D104
+
+inline-quotes = double
+multiline-quotes = double

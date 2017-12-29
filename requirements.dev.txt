@@ -1,0 +1,5 @@
+# This requirements file lists extra dependencies
+# that are useful for development and/or testing.
+
+-r requirements.txt
+coverage==4.4.2

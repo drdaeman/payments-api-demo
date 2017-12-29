@@ -1,0 +1,46 @@
+# Compiled Python code
+*.py[cod]
+__pycache__
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment file (sensitive)
+.env
+
+# Runtime data
+static.run
+
+# Runtime environments
+.virtualenv
+.tox
+
+# Test coverage reports
+.coverage
+.coverage.*
+
+# SQLite3 databases
+*.sqlite3
+
+# IDE and editors
+.idea
+.vscode
+
+# Temporary files
+*~
+*.tmp
+*.swp
+*.bak
+
+# Shell and Python interpreter history
+.ash_history
+.bash_history
+.python_history
+
+# OS-specific
+.directory
+Desktop.ini
+Thumbs.db
+.Trash-*
+$RECYCLE.BIN/
