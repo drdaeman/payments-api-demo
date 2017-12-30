@@ -3,3 +3,7 @@ psycopg2==2.7.3.2
 django-environ==0.4.4
 whitenoise==3.3.0
 djangorestframework>=3.7.7,<3.8
+coreapi>=2.3.3,<2.4
+markdown>=2.6.10,<2.7
+django-money==0.12.3
+django-filter==1.1.0

@@ -1,3 +1,10 @@
 [run]
 branch = True
-omit = */migrations/*, */management/__init__.py, */management/commands/*
+omit =
+    .virtualenv/*,
+    .tox/*,
+    manage.py,
+    api_demo/settings.py,
+    */migrations/*,
+    */management/__init__.py,
+    */management/commands/*

@@ -17,7 +17,9 @@ ignore =
     # D100: Missing docstring in public module
     D100,
     # D104: Missing docstring in public package
-    D104
+    D104,
+    # D106: Missing docstring in public nested class
+    D106
 
 inline-quotes = double
 multiline-quotes = double

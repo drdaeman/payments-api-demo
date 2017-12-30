@@ -15,6 +15,9 @@ import warnings
 
 import environ
 
+import moneyed
+from moneyed.localization import _FORMATTER
+
 # django-environ initialization
 root = environ.Path(__file__) - 2  # type: Callable[[*str], str]
 env = environ.Env()
@@ -70,6 +73,10 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "whitenoise.runserver_nostatic",
     "rest_framework",
+    "djmoney",
+    "django_filters",
+
+    "payments",
 ]
 
 MIDDLEWARE = [
@@ -150,3 +157,22 @@ STATIC_ROOT = env("STATIC_ROOT", default=root("static.run"))
 STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 ]
+
+# Django-Money: restrict list of possible currencies
+# See also: https://github.com/django-money/django-money#adding-a-new-currency
+
+# XBT is unofficial but ISO 4217-conformant code for Bitcoin
+BTC = moneyed.add_currency("XBT", "Nil", "Bitcoin", [])
+_FORMATTER.add_sign_definition("default", BTC, suffix=" BTC")
+
+CURRENCIES = ("USD", "EUR", "PHP", "XBT")
+
+# Django REST Framework configuration
+
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": (
+        # Let's omit BrowsableAPIRenderer and use CoreAPI tooling instead.
+        "rest_framework.renderers.JSONRenderer",
+    ),
+    "DEFAULT_PAGINATION_CLASS": "api_demo.pagination.DefaultPagination",
+}
