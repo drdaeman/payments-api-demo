@@ -81,7 +81,11 @@ class Payment(models.Model):
 
     # Metadata
     time = models.DateTimeField(default=timezone.now, editable=False)
+
+    # Confirmation / replay protection fields
+    # See the PaymentViewSet for more information
     unique_id = models.CharField(max_length=64, unique=True)
+    confirmed = models.BooleanField(blank=True)
 
     # Accounting helper properties, keep balance history
     source_balance_before = MoneyField(null=True, shared_currency=True)
@@ -99,3 +103,41 @@ class Payment(models.Model):
             return f"Withdraw {amount} from {source}"
         else:
             return f"Transfer {amount} from {source} to {destination}"
+
+    def confirm(self, commit=True, from_account=None, to_account=None):
+        """
+        Confirm the payment, adjusting the account balances.
+
+        Must be called in a transaction or bad things would happen.
+        Also, if the accounts were not fetched for update you want
+        to re-fetch and supply them separately.
+
+        This method may raise ``ValueError`` on various problems.
+        """
+        if self.confirmed:
+            raise ValueError("Payment is already confirmed")
+
+        if from_account is None:
+            from_account = self.from_account
+        elif self.from_account is None or from_account != self.from_account:
+            raise RuntimeError("Provided from_account does not match")
+
+        if to_account is None:
+            to_account = self.to_account
+        elif self.to_account is None or to_account != self.to_account:
+            raise RuntimeError("Provided to_account does not match")
+
+        self.confirmed = True
+        if from_account is not None:
+            if from_account.balance < self.amount:
+                raise ValueError("Insufficient funds")
+            self.source_balance_before = from_account.balance
+            from_account.balance -= self.amount
+            from_account.save(update_fields=["balance"])
+        if to_account is not None:
+            self.destination_balance_before = to_account.balance
+            to_account.balance += self.amount
+            to_account.save(update_fields=["balance"])
+
+        if commit:
+            self.save()

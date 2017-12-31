@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 from django.urls import reverse
 
@@ -257,8 +258,33 @@ class PaymentTests(APITestCase):
             name="charlie999", owner=charlie, balance=(1000, PHP)
         )
 
+    def test_confirm_method(self):
+        """Test Payment.confirm behavior."""
+        payment = models.Payment.objects.create(
+            from_account=self.account_bob,
+            to_account=None,
+            amount=Money(1000, USD),
+            unique_id=str(uuid.uuid4()),
+            confirmed=False
+        )
+
+        # Verify that trying to pass mismatching accounts fail
+        with self.assertRaises(RuntimeError):
+            payment.confirm(commit=False, from_account=self.account_alice)
+        with self.assertRaises(RuntimeError):
+            payment.confirm(commit=False, to_account=self.account_alice)
+
+        # Verify that trying to confirm fails if there is an overdraft
+        with self.assertRaises(ValueError):
+            payment.confirm(commit=False)
+
+        # Verify that trying to confirm already confirmed payment fails
+        payment.confirmed = True  # Fake confirmation
+        with self.assertRaises(ValueError):
+            payment.confirm(commit=False)
+
     def test_deposit(self):
-        """Test succesfully depositing money."""
+        """Test successfully depositing money."""
         url = reverse("payment-list")
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
@@ -292,8 +318,57 @@ class PaymentTests(APITestCase):
         # Test that stringifying the Payment model mentions alice
         self.assertIn(self.account_alice.name, str(tx1))
 
+    def test_overdraft_race(self):
+        """
+        Test depositing money with a race condition simulation.
+
+        This test tries to simulate a race condition by mocking
+        PaymentSerializer.validate method to a no-op.
+        """
+        # Test immediate payments that would overdraft
+        # Even without the validate method they shouldn't be possible.
+        validator_fmt = "payments.serializers.{cls}.validate"
+
+        with patch(validator_fmt.format(cls="PaymentSerializer")) as v:
+            v.side_effect = lambda x: x
+            self.test_no_overdraft()
+            self.assertTrue(v.called)
+
+        # Test two-phase protocol with overdraft
+        # With a short-circuited validation function it should be possible
+        # to create new payment now, but trying to commit must fail
+        with patch(validator_fmt.format(cls="PaymentConfirmSerializer")) as v:
+            v.side_effect = lambda x: x
+
+            self.account_bob.refresh_from_db(fields=["balance", "currency"])
+            initial_balance = self.account_bob.balance
+
+            # Just create the Payment directly
+            tx1 = models.Payment.objects.create(
+                from_account=self.account_bob,
+                to_account=None,
+                amount=Money(1000, USD),
+                unique_id=str(uuid.uuid4()),
+                confirmed=False
+            )
+            url = reverse("payment-detail", kwargs={"pk": tx1.pk})
+
+            # Try confirming the transaction - it should still fail
+            res = self.client.patch(url, {"confirmed": True}, format="json")
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+            # The transaction should be still unconfirmed
+            tx1.refresh_from_db()
+            self.assertFalse(tx1.confirmed)
+
+            # And account balance shouldn't change
+            self.account_bob.refresh_from_db(fields=["balance", "currency"])
+            self.assertEqual(self.account_bob.balance, initial_balance)
+
+            self.assertTrue(v.called)
+
     def test_deposit_no_uid(self):
-        """Test succesfully depositing money (without unique_id)."""
+        """Test depositing money in two steps (without unique_id)."""
         url = reverse("payment-list")
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
@@ -307,26 +382,129 @@ class PaymentTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
         # Make sure response has unique_id
-        uid_tx1 = res.json().get("unique_id", None)
+        res_data = res.json()
+        uid_tx1 = res_data.get("unique_id", None)
         self.assertIsNotNone(uid_tx1)
+        self.assertIn("url", res_data)
 
         # Fetch the Payment from database and verify its properties
         tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
         self.assertEqual(tx1.amount, Money(100, USD))
         self.assertIsNone(tx1.from_account)
         self.assertEqual(tx1.to_account, self.account_alice)
+        self.assertFalse(tx1.confirmed)
 
-        # This is safe, because tests are isolated in transactions
+        # Check account balance - it shouldn't have changed yet
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_alice.balance, initial_balance)
+
+        # Mess with the account's balance to verify destination_balance_before
+        self.account_alice.balance = initial_balance + Money(1, USD)
+        self.account_alice.save()
+        initial_balance = self.account_alice.balance
+
+        url = res_data["url"]
+
+        # Try to PATCH with ``confirmed=False``
+        # It should fail - the only accepted value is true
+        res = self.client.patch(url, {"confirmed": False}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Now, confirm the transaction by PATCHing with ``confirmed=True``
+        res = self.client.patch(url, {"confirmed": True}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Check the payment. It should be confirmed now, but otherwise the same
+        tx1.refresh_from_db()
+        self.assertEqual(tx1.amount, Money(100, USD))
+        self.assertIsNone(tx1.from_account)
+        self.assertEqual(tx1.to_account, self.account_alice)
+        self.assertTrue(tx1.confirmed)
+
+        # Check that initial balance is captured correctly
+        # It should be the value at the time of confirmation, not the creation
         self.assertEqual(tx1.destination_balance_before, initial_balance)
 
-        # Check account balance
+        # Check account balance - it should have changed now
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
         self.assertEqual(
             self.account_alice.balance, initial_balance + tx1.amount
         )
 
-        # Test that stringifying the Payment model mentions alice
-        self.assertIn(self.account_alice.name, str(tx1))
+    def test_withdrawal_no_uid(self):
+        """Test succesfully withdrawing money."""
+        url = reverse("payment-list")
+
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_bob.balance
+
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "amount": "10.00",
+            "currency": "USD",
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Make sure response has unique_id
+        res_data = res.json()
+        uid_tx1 = res_data.get("unique_id", None)
+        self.assertIsNotNone(uid_tx1)
+        self.assertIn("url", res_data)
+
+        # Fetch the Payment from database and verify its properties
+        tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
+        self.assertEqual(tx1.amount, Money(10, USD))
+        self.assertEqual(tx1.from_account, self.account_bob)
+        self.assertIsNone(tx1.to_account)
+        self.assertFalse(tx1.confirmed)
+
+        # Check account balance - it shouldn't have changed yet
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_bob.balance, initial_balance)
+
+        # Now, temporarily zero the balance (to test for failure)
+        self.account_bob.balance = Money(0, USD)
+        self.account_bob.save(update_fields=["balance"])
+
+        # Try confirming the payment - it should fail
+        url = res_data["url"]
+        res = self.client.patch(url, {"confirmed": True}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Fix the balance back (but to a different value)
+        initial_balance = initial_balance + Money(1, USD)
+        self.account_bob.balance = initial_balance
+        self.account_bob.save(update_fields=["balance"])
+
+        # Confirm the payment
+        url = res_data["url"]
+        res = self.client.patch(url, {"confirmed": True}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Check the payment. It should be confirmed now, but otherwise the same
+        tx1.refresh_from_db()
+        self.assertEqual(tx1.amount, Money(10, USD))
+        self.assertEqual(tx1.from_account, self.account_bob)
+        self.assertIsNone(tx1.to_account)
+        self.assertTrue(tx1.confirmed)
+
+        # Check that initial balance is captured correctly
+        # It should be the value at the time of confirmation, not the creation
+        self.assertEqual(tx1.source_balance_before, initial_balance)
+
+        # Check account balance - it should have changed now
+        new_balance = initial_balance - tx1.amount
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_bob.balance, new_balance)
+
+        # Check that attempts to re-confirm the payment fail now
+        url = res_data["url"]
+        res = self.client.patch(url, {"confirmed": True}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_304_NOT_MODIFIED)
+
+        # Check account balance - it should have not changed
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_bob.balance, new_balance)
 
     def test_no_accounts(self):
         """Test that payments without both from and to accounts fail."""
@@ -396,7 +574,7 @@ class PaymentTests(APITestCase):
             )
 
     def test_no_overdraft(self):
-        """Test that no overdraft is possible."""
+        """Test that no overdraft is possible (immediate payment)."""
         url = reverse("payment-list")
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
@@ -416,6 +594,25 @@ class PaymentTests(APITestCase):
         self.assertFalse(
             models.Payment.objects.filter(unique_id=uid_tx1).exists()
         )
+
+        # Check account balance
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_bob.balance, initial_balance)
+
+    def test_no_overdraft_2pc(self):
+        """Test that no overdraft is possible (2PC variant)."""
+        url = reverse("payment-list")
+
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_bob.balance
+
+        # Try the two-step protocol variant (only the first step, of course)
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "amount": str((initial_balance + Money(1000, USD)).amount),
+            "currency": "USD",
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Check account balance
         self.account_bob.refresh_from_db(fields=["balance", "currency"])

@@ -3,6 +3,7 @@ from django.db import IntegrityError, transaction
 from django_filters.rest_framework import DjangoFilterBackend
 
 from rest_framework import mixins, response, status, viewsets
+from rest_framework.response import Response
 
 from . import filters, models, serializers
 
@@ -144,8 +145,48 @@ class PaymentViewSet(mixins.ListModelMixin,
 
     # TODO: Filters
     # TODO: Cursor or alike pagination, pages or offsets don't fit here.
-    queryset = models.Payment.objects.order_by("pk")
+    queryset = models.Payment.objects.select_related(
+        "from_account", "to_account"
+    ).order_by("pk")
     serializer_class = serializers.PaymentSerializer
+
+    def get_serializer_class(self):
+        """
+        Return the appropriate serializer class.
+
+        Normally it's PaymentSerializer, but for the update actions
+        it's PaymentConfirmSerializer instead.
+        """
+        if self.action in ("partial_update", "update"):
+            return serializers.PaymentConfirmSerializer
+        else:
+            return super().get_serializer_class()
+
+    # NOTE: We don't need transaction.atomic on this method, because
+    # the PaymentConfirmSerializer does transaction management on its own.
+    def partial_update(self, request, *args, **kwargs):
+        """Confirm the previously unconfirmed payment, adjusting balances."""
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+
+        updated_instance = serializer.save()
+        if getattr(updated_instance, "_not_modified", False):
+            # HAX: Okay, responding with HTTP 304 is not exactly standard,
+            # but this is the sanest I came up with. 409 was another option.
+            # We should be retuning all the required headers anyway,
+            # and empty body requirement is actually handy so we don't have
+            # to switch serializers. But YMMV.
+            return response.Response(status=status.HTTP_304_NOT_MODIFIED)
+
+        if hasattr(instance, "_prefetched_objects_cache"):  # pragma: nocover
+            # If 'prefetch_related' has been applied to a queryset, we need to
+            # forcibly invalidate the prefetch cache on the instance.
+            instance._prefetched_objects_cache = {}
+
+        return Response(serializer.data)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -155,6 +196,16 @@ class PaymentViewSet(mixins.ListModelMixin,
         Either of the ``from_account`` and ``to_account`` fields can
         be omitted, but at least one is required. If only one account
         is specified, payment is treated as a deposit or withdrawal.
+
+        If the ``unique_id`` is provided, the transaction is marked
+        as ``confirmed`` and account balances are adjusted respectively.
+
+        If not, the account balances are left intact and payment
+        is created with ``confirmed`` set to ``False``, requiring a second
+        step to commit the transaction.
+
+        Note, the funds for uncommitted transactions are *not* frozen
+        or otherwise reserved.
         """
         # The whole point of this function is in the ``atomic`` decorator.
         return super().create(request, *args, **kwargs)

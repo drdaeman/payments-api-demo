@@ -106,9 +106,11 @@ class PaymentSerializer(serializers.ModelSerializer):
             "currency",
             "time",
             "unique_id",
+            "confirmed",
         )
         read_only_fields = (
             "currency",
+            "confirmed",
         )
         extra_kwargs = {
             "amount": {
@@ -183,19 +185,15 @@ class PaymentSerializer(serializers.ModelSerializer):
         """Perform the requested payment, adjusting the account balances."""
         payment = self.Meta.model(**validated_data)
         if not payment.unique_id:
+            # TODO: Consider GCing unconfirmed Payments after a while
             payment.unique_id = str(uuid.uuid4())
-
-        from_account = payment.from_account
-        if from_account is not None:
-            payment.source_balance_before = from_account.balance
-            from_account.balance -= payment.amount
-            from_account.save(update_fields=["balance"])
-
-        to_account = payment.to_account
-        if to_account is not None:
-            payment.destination_balance_before = to_account.balance
-            to_account.balance += payment.amount
-            to_account.save(update_fields=["balance"])
+            payment.confirmed = False
+        else:
+            try:
+                payment.confirm(commit=False)
+            except ValueError as e:
+                raise serializers.ValidationError(*e.args)
+            assert payment.confirmed is True
 
         payment.save(force_insert=True)  # Force INSERT to be extra safe
         return payment
@@ -205,4 +203,79 @@ class PaymentSerializer(serializers.ModelSerializer):
         # This method should be never called, since the relevant ViewSet
         # should not implement `update` or `partial_update` methods.
         # Still, if there is some accidental mistake let's fail explicitly.
-        raise RuntimeError("Payment updates are not allowed")
+        #
+        # The only updates possible are for the `confirm` field, and
+        # for such updates you must use PaymentConfirmSerializer.
+        raise RuntimeError("PaymentSerializer.update is not allowed")
+
+
+class PaymentConfirmSerializer(serializers.ModelSerializer):
+    """
+    Serializer used to confirm payments in the two-step protocol mode.
+
+    It only exposes a single field, ``confirmed`` and only accepts ``True``
+    as a valid value.
+    """
+
+    class Meta:
+        model = models.Payment
+        fields = PaymentSerializer.Meta.fields
+        read_only_fields = tuple(
+            f for f in PaymentSerializer.Meta.fields
+            if f != "confirmed"
+        )
+
+    def create(self, validated_data):  # pragma: nocover
+        """Ensure that this serializer can't be used to create new Payments."""
+        raise RuntimeError("PaymentConfirmSerializer.create was called")
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """
+        Confirm (commit) previously created payment.
+
+        If a payment was created without any ``unique_id``, we don't perform
+        it immediately, but use a two-phase commit protocol variation instead.
+        We ask the client to follow the created payment and confirm it,
+        completing the transaction.
+        """
+        if not validated_data.get("confirmed", None):
+            raise serializers.ValidationError(
+                "The only valid value for 'confirmed' is 'true'"
+            )
+
+        # Unfortunately, DRF doesn't allow action-dependent use
+        # of select_for_update, so we have to re-fetch the objects.
+        # See https://github.com/encode/django-rest-framework/issues/4675
+        #
+        # Also note we can't do Payment.objects.select_related() here,
+        # as SELECT FOR UPDATE doesn't work for the nullable side
+        # of the OUTER JOINs.
+        payments = models.Payment.objects.select_for_update()
+        accounts = models.Account.objects.select_for_update()
+
+        payment = payments.get(pk=instance.pk)
+        if payment.confirmed:
+            # TODO: Or maybe throw an exception here?
+            payment._not_modified = True  # HAX: Signal ViewSet about 304
+            return payment
+
+        # Note: select_related won't create a lock, so select independently
+        if payment.from_account is not None:
+            from_account = accounts.get(pk=payment.from_account.pk)
+        else:
+            from_account = None
+        if payment.to_account is not None:
+            to_account = accounts.get(pk=payment.to_account.pk)
+        else:
+            to_account = None
+
+        try:
+            payment.confirm(
+                commit=True,
+                from_account=from_account,
+                to_account=to_account
+            )
+        except ValueError as e:
+            raise serializers.ValidationError(*e.args)
+        return payment

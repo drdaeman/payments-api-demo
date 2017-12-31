@@ -27,6 +27,6 @@ class PaymentAdmin(admin.ModelAdmin):
 
     autocomplete_fields = ("from_account", "to_account")
     list_display = (
-        "time", "from_account", "to_account", "amount",
+        "time", "from_account", "to_account", "amount", "confirmed",
     )
     search_fields = ("unique_id",)
