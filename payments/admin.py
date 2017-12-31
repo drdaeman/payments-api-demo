@@ -15,5 +15,18 @@ class AccountAdmin(admin.ModelAdmin):
     """Django admin configuration for the Account model."""
 
     readonly_fields = ("currency", "balance")
+    list_display = ("name", "balance", "owner")
+    list_select_related = ("owner",)
     autocomplete_fields = ("owner",)
     search_fields = ("name",)
+
+
+@admin.register(models.Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    """Django admin configuration for the Payment model."""
+
+    autocomplete_fields = ("from_account", "to_account")
+    list_display = (
+        "time", "from_account", "to_account", "amount",
+    )
+    search_fields = ("unique_id",)

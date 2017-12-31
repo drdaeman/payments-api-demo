@@ -1,6 +1,26 @@
 from django.db import models
+from django.utils import timezone
 
-from djmoney.models.fields import MoneyField
+import djmoney.models.fields
+
+
+class MoneyField(djmoney.models.fields.MoneyField):
+    """
+    A MoneyField subclass with tweaked defaults.
+
+    This class also adds convenience/shortcut argument ``shared_currency``.
+    When set to ``True`` it's essentially ``currency_field_name="currency"``.
+    The default is ``False`` to avoid possible confusion.
+    """
+
+    def __init__(self, verbose_name=None, name=None, **kwargs):
+        """Initialize MoneyField with useful defaults."""
+        kwargs.setdefault("max_digits", 36)
+        kwargs.setdefault("decimal_places", 18)
+        kwargs.setdefault("default_currency", "USD")
+        if kwargs.pop("shared_currency", False):
+            kwargs.setdefault("currency_field_name", "currency")
+        super().__init__(verbose_name, name, **kwargs)
 
 
 class Owner(models.Model):
@@ -32,13 +52,50 @@ class Account(models.Model):
     owner = models.ForeignKey(
         Owner, on_delete=models.PROTECT, help_text="Account owner's ID."
     )
-    balance = MoneyField(
-        max_digits=36, decimal_places=18,
-        default_currency="USD",
-        currency_field_name="currency",
-        editable=False
-    )
+    balance = MoneyField(shared_currency=True, editable=False)
 
     def __str__(self):
         """Return text representation of the Account, currently its name."""
         return self.name
+
+
+class Payment(models.Model):
+    """
+    A transaction between two accounts.
+
+    One side (``from_account`` or ``to_account``) account can be ``None``,
+    in case of money deposits or withdrawals.
+    """
+
+    # Essential properties (where from, where to, amount)
+    # TODO: The spec said "from_account and "to_account". Rename before commit!
+    from_account = models.ForeignKey(
+        Account, blank=True, null=True, on_delete=models.CASCADE,
+        related_name="payments_from"
+    )
+    to_account = models.ForeignKey(
+        Account, blank=True, null=True, on_delete=models.CASCADE,
+        related_name="payments_to"
+    )
+    amount = MoneyField(shared_currency=True)
+
+    # Metadata
+    time = models.DateTimeField(default=timezone.now, editable=False)
+    unique_id = models.CharField(max_length=64, unique=True)
+
+    # Accounting helper properties, keep balance history
+    source_balance_before = MoneyField(null=True, shared_currency=True)
+    destination_balance_before = MoneyField(null=True, shared_currency=True)
+
+    def __str__(self):
+        """Return a short string describing the payment. Not i18n-aware."""
+        amount = str(self.amount)
+        source = str(self.from_account)
+        destination = str(self.to_account)
+
+        if self.from_account is None:
+            return f"Deposit {amount} to {destination}"
+        elif self.to_account is None:
+            return f"Withdraw {amount} from {source}"
+        else:
+            return f"Transfer {amount} from {source} to {destination}"

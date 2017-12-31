@@ -1,6 +1,8 @@
+import uuid
+
 from django.urls import reverse
 
-from moneyed import Money, USD
+from moneyed import Money, PHP, USD
 
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -234,3 +236,266 @@ class AccountTests(APITestCase):
         self.assertTrue(
             models.Account.objects.filter(name="alice001").exists()
         )
+
+
+class PaymentTests(APITestCase):
+    """Tests for the Payment model and its API."""
+
+    @classmethod
+    def setUpTestData(cls):  # noqa: N802
+        """Set up three accounts (alice, bob and charlie) for payment tests."""
+        alice = models.Owner.objects.create(name="alice")
+        bob = models.Owner.objects.create(name="bob")
+        charlie = models.Owner.objects.create(name="charlie")
+        cls.account_alice = models.Account.objects.create(
+            name="alice456", owner=alice, balance=Money(0, USD)
+        )
+        cls.account_bob = models.Account.objects.create(
+            name="bob123", owner=bob, balance=Money(100, USD)
+        )
+        cls.account_charlie = models.Account.objects.create(
+            name="charlie999", owner=charlie, balance=(1000, PHP)
+        )
+
+    def test_deposit(self):
+        """Test succesfully depositing money."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_alice.balance
+
+        uid_tx1 = f"test_deposit/{tuid}/tx1"
+        res = self.client.post(url, {
+            "to_account": self.account_alice.name,
+            "amount": "100.00",
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Fetch the Payment from database and verify its properties
+        tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
+        self.assertEqual(tx1.amount, Money(100, USD))
+        self.assertIsNone(tx1.from_account)
+        self.assertEqual(tx1.to_account, self.account_alice)
+
+        # This is safe, because tests are isolated in transactions
+        self.assertEqual(tx1.destination_balance_before, initial_balance)
+
+        # Check account balance
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(
+            self.account_alice.balance, initial_balance + tx1.amount
+        )
+
+        # Test that stringifying the Payment model mentions alice
+        self.assertIn(self.account_alice.name, str(tx1))
+
+    def test_deposit_no_uid(self):
+        """Test succesfully depositing money (without unique_id)."""
+        url = reverse("payment-list")
+
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_alice.balance
+
+        res = self.client.post(url, {
+            "to_account": self.account_alice.name,
+            "amount": "100.00",
+            "currency": "USD",
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Make sure response has unique_id
+        uid_tx1 = res.json().get("unique_id", None)
+        self.assertIsNotNone(uid_tx1)
+
+        # Fetch the Payment from database and verify its properties
+        tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
+        self.assertEqual(tx1.amount, Money(100, USD))
+        self.assertIsNone(tx1.from_account)
+        self.assertEqual(tx1.to_account, self.account_alice)
+
+        # This is safe, because tests are isolated in transactions
+        self.assertEqual(tx1.destination_balance_before, initial_balance)
+
+        # Check account balance
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(
+            self.account_alice.balance, initial_balance + tx1.amount
+        )
+
+        # Test that stringifying the Payment model mentions alice
+        self.assertIn(self.account_alice.name, str(tx1))
+
+    def test_no_accounts(self):
+        """Test that payments without both from and to accounts fail."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        uid_tx1 = f"test_no_accounts/{tuid}/tx1"
+        res = self.client.post(url, {
+            "amount": "3.14",
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Ensure no Payment was created
+        self.assertFalse(
+            models.Payment.objects.filter(unique_id=uid_tx1).exists()
+        )
+
+    def test_currency_match(self):
+        """Test matching account and payment currencies."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        # Test our test setup ;)
+        self.assertNotEqual(
+            self.account_bob.currency, self.account_charlie.currency
+        )
+
+        # Try various payment combinations that would've involned
+        # different currencies one way or another. Make sure they all fail.
+
+        uid_tx1 = f"test_transfer/{tuid}/tx1"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "to_account": self.account_charlie.name,
+            "amount": "10.00",
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        uid_tx2 = f"test_transfer/{tuid}/tx2"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "to_account": self.account_charlie.name,
+            "amount": "10.00",
+            "currency": "PHP",
+            "unique_id": uid_tx2
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        uid_tx3 = f"test_transfer/{tuid}/tx3"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "to_account": self.account_charlie.name,
+            "amount": "10.00",
+            "currency": "XBT",
+            "unique_id": uid_tx3
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Confirm than to Payments were created in the database
+        for uid_tx in (uid_tx1, uid_tx2, uid_tx3):
+            self.assertFalse(
+                models.Payment.objects.filter(unique_id=uid_tx).exists()
+            )
+
+    def test_no_overdraft(self):
+        """Test that no overdraft is possible."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_bob.balance
+
+        uid_tx1 = f"test_no_overdraft/{tuid}/tx1"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "amount": str((initial_balance + Money(1000, USD)).amount),
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Ensure no Payment was created
+        self.assertFalse(
+            models.Payment.objects.filter(unique_id=uid_tx1).exists()
+        )
+
+        # Check account balance
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(self.account_bob.balance, initial_balance)
+
+    def test_transfer(self):
+        """Test money transfer between two accounts."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        initial_balance_alice = self.account_alice.balance
+        initial_balance_bob = self.account_bob.balance
+
+        uid_tx1 = f"test_transfer/{tuid}/tx1"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "to_account": self.account_alice.name,
+            "amount": "10.00",
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Fetch the Payment from database and verify its properties
+        tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
+        self.assertEqual(tx1.amount, Money(10, USD))
+        self.assertEqual(tx1.from_account, self.account_bob)
+        self.assertEqual(tx1.to_account, self.account_alice)
+
+        # This is safe, because tests are isolated in transactions
+        self.assertEqual(tx1.source_balance_before, initial_balance_bob)
+        self.assertEqual(tx1.destination_balance_before, initial_balance_alice)
+
+        # Check account balances
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(
+            self.account_bob.balance, initial_balance_bob - tx1.amount
+        )
+        self.assertEqual(
+            self.account_alice.balance, initial_balance_alice + tx1.amount
+        )
+
+        # Test that stringifying the Payment model mentions alice and bob
+        self.assertIn(self.account_alice.name, str(tx1))
+        self.assertIn(self.account_bob.name, str(tx1))
+
+    def test_withdrawal(self):
+        """Test succesfully withdrawing money."""
+        url = reverse("payment-list")
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        initial_balance = self.account_bob.balance
+
+        uid_tx1 = f"test_withdrawal/{tuid}/tx1"
+        res = self.client.post(url, {
+            "from_account": self.account_bob.name,
+            "amount": "10.00",
+            "currency": "USD",
+            "unique_id": uid_tx1
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Fetch the Payment from database and verify its properties
+        tx1 = models.Payment.objects.select_related().get(unique_id=uid_tx1)
+        self.assertEqual(tx1.amount, Money(10, USD))
+        self.assertEqual(tx1.from_account, self.account_bob)
+        self.assertIsNone(tx1.to_account)
+
+        # This is safe, because tests are isolated in transactions
+        self.assertEqual(tx1.source_balance_before, initial_balance)
+
+        # Check account balance
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        self.assertEqual(
+            self.account_bob.balance, initial_balance - tx1.amount
+        )
+
+        # Test that stringifying the Payment model mentions bob
+        self.assertIn(self.account_bob.name, str(tx1))

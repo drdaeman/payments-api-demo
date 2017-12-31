@@ -1,9 +1,15 @@
 Payments API sample
 ===================
 
-This demo project is a work in progress.
+This is a work in progress.
 
-At the moment, it doesn't do anything useful.
+It demonstrates use of Django and Django REST Framework to implement
+a simple accounting-like API service that manages accounts and can
+perform deposits, withdrawals and transfers between those.
+
+After the project is up and running, check the index page for documentation.
+
+**TODO:** More details TBD
 
 Setting up
 ----------

@@ -8,6 +8,7 @@ from . import views
 router = routers.DefaultRouter()
 router.register("owners", views.OwnerViewSet)
 router.register("accounts", views.AccountViewSet)
+router.register("payments", views.PaymentViewSet)
 
 
 urlpatterns = [

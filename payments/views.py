@@ -123,3 +123,38 @@ class AccountViewSet(mixins.CreateModelMixin,
             {"error": "Only accounts with zero balance can be deleted"},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+class PaymentViewSet(mixins.ListModelMixin,
+                     mixins.RetrieveModelMixin,
+                     mixins.CreateModelMixin,
+                     viewsets.GenericViewSet):
+    """
+    This viewset allows to view and perform payments.
+
+    list:
+    Returns a list of all payments known to the system.
+
+    retrieve:
+    Returns the given payment.
+
+    create:
+    Performs the new payment. See ``create`` method's docstring for details.
+    """
+
+    # TODO: Filters
+    # TODO: Cursor or alike pagination, pages or offsets don't fit here.
+    queryset = models.Payment.objects.order_by("pk")
+    serializer_class = serializers.PaymentSerializer
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        """
+        Perform the new payment, adjusting the account balances.
+
+        Either of the ``from_account`` and ``to_account`` fields can
+        be omitted, but at least one is required. If only one account
+        is specified, payment is treated as a deposit or withdrawal.
+        """
+        # The whole point of this function is in the ``atomic`` decorator.
+        return super().create(request, *args, **kwargs)
