@@ -60,15 +60,20 @@ class AccountCreateSerializer(AccountSerializer):
     class Meta(AccountSerializer.Meta):
         pass
 
-    def save(self, **kwargs):
+    def create(self, validated_data):
         """Create the new account with zero balance in a given currency."""
-        # TODO: Replace this with `create` method? (Possibly in base class?)
-        currency = self.validated_data.pop("currency")
-        kwargs["balance"] = moneyed.Money(
+        currency = validated_data.pop("currency")
+        validated_data["balance"] = moneyed.Money(
             amount=0,
             currency=currency
         )
-        return super().save(**kwargs)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):  # pragma: nocover
+        """Fail when trying to update Account with this class."""
+        # This method should never be called. It is here only
+        # in case of possible viewset misconfiguration.
+        raise RuntimeError("AccountCreateSerializer cannot update accounts")
 
 
 class PaymentSerializer(serializers.ModelSerializer):
