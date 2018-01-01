@@ -83,6 +83,10 @@ class PaymentSerializer(serializers.ModelSerializer):
     Note, this serializer assumes the
     """
 
+    # NOTE: Those fields use select_for_update and thus are not compatible
+    # with DRF BrowsableAPIRenderer. It is not a problem for this demo project,
+    # as we're using CoreAPI for browsable docs anyway, but keep this in mind
+    # if you'll want to change things.
     from_account = serializers.SlugRelatedField(
         slug_field="name", queryset=models.Account.objects.select_for_update(),
         required=False, allow_null=True,
