@@ -68,7 +68,6 @@ class Payment(models.Model):
     """
 
     # Essential properties (where from, where to, amount)
-    # TODO: The spec said "from_account and "to_account". Rename before commit!
     from_account = models.ForeignKey(
         Account, blank=True, null=True, on_delete=models.CASCADE,
         related_name="payments_from"
