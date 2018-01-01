@@ -5,7 +5,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, response, status, viewsets
 from rest_framework.response import Response
 
-from . import filters, models, serializers
+from . import filters, models, pagination, serializers
 
 
 class OwnerViewSet(mixins.CreateModelMixin,
@@ -143,12 +143,13 @@ class PaymentViewSet(mixins.ListModelMixin,
     Performs the new payment. See ``create`` method's docstring for details.
     """
 
-    # TODO: Filters
-    # TODO: Cursor or alike pagination, pages or offsets don't fit here.
     queryset = models.Payment.objects.select_related(
-        "from_account", "to_account"
+        "from_account__owner", "to_account__owner"
     ).order_by("pk")
     serializer_class = serializers.PaymentSerializer
+    filter_backends = (DjangoFilterBackend,)
+    filter_class = filters.PaymentFilter
+    pagination_class = pagination.MonotonicCursorPagination
 
     def get_serializer_class(self):
         """
