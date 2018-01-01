@@ -1,4 +1,3 @@
-import unittest
 import uuid
 from unittest.mock import patch
 
@@ -698,8 +697,111 @@ class PaymentTests(APITestCase):
         # Test that stringifying the Payment model mentions bob
         self.assertIn(self.account_bob.name, str(tx1))
 
-    @unittest.skip  # Blip on radar but don't fail hard
     def test_pagination(self):
         """Tests for the Payment pagination and MonotonicCursorPagination."""
-        # TODO: Currently test is missing, needs to be implemented.
-        self.fail("Pagination test is not yet implemented")
+        url = reverse("payment-list") + "?limit=10"
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+
+        # Check the payments list and make sure it's empty
+        res = self.client.get(url, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.json()
+        self.assertIn("links", data)
+        self.assertIn("results", data)
+        self.assertEqual(len(data["results"]), 0)
+
+        # Since there is no data, there are no PKs to refer to.
+        # So, no cursors thus all links are null.
+        self.assertIn("this", data["links"])
+        self.assertIn("next", data["links"])
+        self.assertIn("prev", data["links"])
+        self.assertIsNone(data["links"]["this"])
+        self.assertIsNone(data["links"]["prev"])
+        self.assertIsNone(data["links"]["next"])
+
+        # Generate a hundred of payments. Their data doesn't really matter.
+        for idx in range(0, 100):
+            models.Payment.objects.create(
+                to_account=self.account_alice,
+                amount=Money(1, USD),
+                unique_id=f"test_pagination/{tuid}/tx{idx}",
+                confirmed=False,
+            )
+
+        # Iterate from latest data to older items and collect unique_ids
+        prev_url = None
+        seen_items = set()
+        # Iterate 15 times max, so in case of a bug we won't get stuck
+        # With limit=10 and 100 entries, 10 times should be enough
+        for idx in range(0, 12):  # pragma: no branch
+            res = self.client.get(url, format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+
+            self.assertIn("this", data["links"])
+            self.assertIn("next", data["links"])
+            self.assertIn("prev", data["links"])
+
+            for item in data["results"]:
+                seen_items.add(item.get("unique_id"))
+
+            if prev_url is None:
+                # On the very first query, remember links.prev
+                # We'll use it in later test
+                prev_url = data["links"]["prev"]
+                self.assertEqual(idx, 0)
+                self.assertIsNotNone(prev_url)
+            url = data["links"]["next"]  # Note, limit value is retained
+            if not url:
+                break
+
+        # Check that we saw all the 100 payments we've created
+        self.assertEqual(len(seen_items), 100)
+
+        # Generate another 25 payments.
+        for idx in range(100, 125):
+            models.Payment.objects.create(
+                to_account=self.account_alice,
+                amount=Money(1, USD),
+                unique_id=f"test_pagination/{tuid}/tx{idx}",
+                confirmed=False,
+            )
+
+        url = prev_url  # Start from first seen "prev" link
+        for idx in range(0, 5):  # pragma: no branch
+            res = self.client.get(url, format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+
+            self.assertIn("this", data["links"])
+            self.assertIn("next", data["links"])
+            self.assertIn("prev", data["links"])
+
+            for item in data["results"]:
+                seen_items.add(item.get("unique_id"))
+
+            url = data["links"]["prev"]
+            if len(data["results"]) < 1:
+                # Stop when there are no more items
+                break
+
+        # Check that we saw all the 125 payments we've created up to now
+        self.assertEqual(len(seen_items), 125, sorted(seen_items))
+
+        # Check that retrying results in empty and "prev" link doesn't change
+        # Note, persistent "prev" links are not actually in the spec and
+        # clients shouldn't assume so. It is an implementation detail
+        res = self.client.get(url, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertIn("links", data)
+        self.assertIn("results", data)
+        self.assertEqual(data["links"]["prev"], url)
+        self.assertEqual(len(data["results"]), 0)

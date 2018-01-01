@@ -130,26 +130,54 @@ class MonotonicCursorPagination(pagination.BasePagination):
         limit = self.get_page_size(request)
         self.cursor = self.get_cursor(request)
 
+        order_desc = True
         if self.cursor:
             flt = {f"{self.pk_field}__{self.cursor.cmp_name}": self.cursor.pk}
             queryset = queryset.filter(**flt)
+            if self.cursor.cmp.startswith(">"):
+                # ">" and ">=" cmps means we look forward, for newer entries
+                # In such case we don't need a limit+1 and we need to fetch
+                # the oldest entries that match the cursor cutoff
+                order_desc = False
 
-        results = list(queryset.order_by("-" + self.pk_field)[:limit + 1])
+        if order_desc:
+            # Fetch one more item over the limit to see if there is next page
+            results = list(queryset.order_by("-" + self.pk_field)[:limit + 1])
+        else:
+            results = list(queryset.order_by(self.pk_field)[:limit])
+            results.reverse()
 
         if len(results) > limit:
+            # Use next item's PK as a reference. Next page should start
+            # with that item, so use "<=" lookup.
             next_pk = getattr(results[limit], self.pk_field)
-            self.next_cursor = Cursor("<", next_pk)
+            self.next_cursor = Cursor("<=", next_pk)
         else:
+            # There is no more items. We've fetched everything there is.
+            # (Assuming that no one would insert items with low PKs, of course)
             self.next_cursor = None
 
         if len(results) > 0:
             first_pk = getattr(results[0], self.pk_field)
+            # Previous page should start with PK greater than first one
+            # we have on this page, so ">" lookup (PKs increase).
+            #
+            # Note, the "previous" actually means "newer" - that's because
+            # the direction is from future to the past and "next"
+            # means "continue with older results".
             self.prev_cursor = Cursor(">", first_pk)
             if not self.cursor:
+                # If we don't have cursor, define one for this page.
+                # Start with first item and do down the PK ("<=")
                 self.cursor = Cursor("<=", first_pk)
         elif self.cursor:
-            self.prev_cursor = Cursor("<=", self.cursor.pk)
+            # We don't have any results, but we have the cursor.
+            # This could've happened if the item was there but is now gone.
+            # Therefore, "this" is "<=pk" and "prev" is ">pk".
+            self.prev_cursor = Cursor(">", self.cursor.pk)
         else:
+            # There are no results and no cursor, so no PK to refer to.
+            # The client should retry with bare endpoint URL (w/o cursor arg)
             self.prev_cursor = None
 
         return list(results[:limit])
@@ -201,7 +229,7 @@ class MonotonicCursorPagination(pagination.BasePagination):
                 return min(limit, self.max_page_size)
         return self.page_size
 
-    def to_html(self):
+    def to_html(self):  # pragma: nocover
         """Supposed to return HTML page controls, but not yet implemented."""
         # We're not using BrowsableAPIRenderer anyway, so not important
         raise NotImplementedError("Page controls are not implemented")
