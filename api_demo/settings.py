@@ -175,4 +175,5 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ),
     "DEFAULT_PAGINATION_CLASS": "api_demo.pagination.DefaultPagination",
+    "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.URLPathVersioning"
 }

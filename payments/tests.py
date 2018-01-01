@@ -22,7 +22,7 @@ class OwnerTests(APITestCase):
 
     def test_list_owners(self):
         """Test listing owners."""
-        url = reverse("owner-list")
+        url = reverse("owner-list", kwargs={"version": "v1"})
 
         # Try without any owners first
         self.assertFalse(models.Owner.objects.exists())
@@ -46,7 +46,7 @@ class OwnerTests(APITestCase):
 
     def test_create_owner(self):
         """Ensure we can create owner, but only if names are unique."""
-        url = reverse("owner-list")
+        url = reverse("owner-list", kwargs={"version": "v1"})
 
         # First, ensure there is no "alice" in the database
         self.assertFalse(models.Owner.objects.filter(name="alice").exists())
@@ -62,7 +62,10 @@ class OwnerTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
         # And that we're able to fetch "alice" and it's really her name
-        url = reverse("owner-detail", kwargs={"name": "alice"})
+        url = reverse("owner-detail", kwargs={
+            "version": "v1",
+            "name": "alice"
+        })
         res = self.client.get(url, format="json")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.json()["name"], "alice")
@@ -70,14 +73,17 @@ class OwnerTests(APITestCase):
     def test_update_owner(self):
         """Ensure that owners can be renamed."""
         # Send a POST request to create "alice"
-        url = reverse("owner-list")
+        url = reverse("owner-list", kwargs={"version": "v1"})
         res = self.client.post(url, {"name": "alice"}, format="json")
         # And ensure the 201 response and that she exists afterwards
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(models.Owner.objects.filter(name="alice").exists())
 
         # Now, rename "alice" to "allie"
-        url = reverse("owner-detail", kwargs={"name": "alice"})
+        url = reverse("owner-detail", kwargs={
+            "version": "v1",
+            "name": "alice"
+        })
         res = self.client.patch(url, {"name": "allie"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
@@ -88,7 +94,10 @@ class OwnerTests(APITestCase):
 
         # And that "allie" now exists
         self.assertTrue(models.Owner.objects.filter(name="allie").exists())
-        url = reverse("owner-detail", kwargs={"name": "allie"})
+        url = reverse("owner-detail", kwargs={
+            "version": "v1",
+            "name": "allie"
+        })
         res = self.client.get(url, format="json")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.json()["name"], "allie")
@@ -96,7 +105,7 @@ class OwnerTests(APITestCase):
     def test_delete_owner(self):
         """Ensure that owners can be renamed."""
         # Send a POST request to create "alice"
-        url = reverse("owner-list")
+        url = reverse("owner-list", kwargs={"version": "v1"})
         res = self.client.post(url, {"name": "alice"}, format="json")
         # And ensure the 201 response and that she exists afterwards
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
@@ -112,7 +121,10 @@ class OwnerTests(APITestCase):
         )
 
         # Try to delete "alice". It should fail, because "alice001" has money
-        url = reverse("owner-detail", kwargs={"name": "alice"})
+        url = reverse("owner-detail", kwargs={
+            "version": "v1",
+            "name": "alice"
+        })
         res = self.client.delete(url, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -125,7 +137,10 @@ class OwnerTests(APITestCase):
         account.save()
 
         # Now, deleting "alice" should be possible
-        url = reverse("owner-detail", kwargs={"name": "alice"})
+        url = reverse("owner-detail", kwargs={
+            "version": "v1",
+            "name": "alice"
+        })
         res = self.client.delete(url, format="json")
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
 
@@ -148,7 +163,7 @@ class AccountTests(APITestCase):
 
     def test_list_accounts(self):
         """Test listing accounts."""
-        url = reverse("account-list")
+        url = reverse("account-list", kwargs={"version": "v1"})
 
         # Try without any accounts first
         self.assertFalse(models.Account.objects.exists())
@@ -183,7 +198,7 @@ class AccountTests(APITestCase):
 
     def test_create_account(self):
         """Ensure we can create an account, but only if names are unique."""
-        url = reverse("account-list")
+        url = reverse("account-list", kwargs={"version": "v1"})
         data = {"name": "alice001", "owner": "alice", "currency": "USD"}
 
         # First, try to create account for non-existent owner "alice"
@@ -201,7 +216,10 @@ class AccountTests(APITestCase):
         ).exists())
 
         # And that we're able to fetch "alice001" and it's really correct
-        url = reverse("account-detail", kwargs={"name": "alice001"})
+        url = reverse("account-detail", kwargs={
+            "version": "v1",
+            "name": "alice001"
+        })
         res = self.client.get(url, format="json")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         res_data = res.json()
@@ -222,7 +240,10 @@ class AccountTests(APITestCase):
 
         # Try to delete account with $0 balance and make sure this succeeds.
         res = self.client.delete(
-            reverse("account-detail", kwargs={"name": "alice000"})
+            reverse("account-detail", kwargs={
+                "version": "v1",
+                "name": "alice000"
+            })
         )
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
@@ -231,7 +252,10 @@ class AccountTests(APITestCase):
 
         # Try to delete account with $1 balance and ensure we can't do this.
         res = self.client.delete(
-            reverse("account-detail", kwargs={"name": "alice001"})
+            reverse("account-detail", kwargs={
+                "version": "v1",
+                "name": "alice001"
+            })
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(
@@ -285,7 +309,7 @@ class PaymentTests(APITestCase):
 
     def test_deposit(self):
         """Test successfully depositing money."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
@@ -351,7 +375,10 @@ class PaymentTests(APITestCase):
                 unique_id=str(uuid.uuid4()),
                 confirmed=False
             )
-            url = reverse("payment-detail", kwargs={"pk": tx1.pk})
+            url = reverse("payment-detail", kwargs={
+                "version": "v1",
+                "pk": tx1.pk
+            })
 
             # Try confirming the transaction - it should still fail
             res = self.client.patch(url, {"confirmed": True}, format="json")
@@ -369,7 +396,7 @@ class PaymentTests(APITestCase):
 
     def test_deposit_no_uid(self):
         """Test depositing money in two steps (without unique_id)."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_alice.balance
@@ -433,7 +460,7 @@ class PaymentTests(APITestCase):
 
     def test_withdrawal_no_uid(self):
         """Test succesfully withdrawing money."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_bob.balance
@@ -508,7 +535,7 @@ class PaymentTests(APITestCase):
 
     def test_no_accounts(self):
         """Test that payments without both from and to accounts fail."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         uid_tx1 = f"test_no_accounts/{tuid}/tx1"
@@ -526,7 +553,7 @@ class PaymentTests(APITestCase):
 
     def test_currency_match(self):
         """Test matching account and payment currencies."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         # Test our test setup ;)
@@ -575,7 +602,7 @@ class PaymentTests(APITestCase):
 
     def test_no_overdraft(self):
         """Test that no overdraft is possible (immediate payment)."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
@@ -601,7 +628,7 @@ class PaymentTests(APITestCase):
 
     def test_no_overdraft_2pc(self):
         """Test that no overdraft is possible (2PC variant)."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_bob.balance
@@ -620,7 +647,7 @@ class PaymentTests(APITestCase):
 
     def test_transfer(self):
         """Test money transfer between two accounts."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
@@ -664,7 +691,7 @@ class PaymentTests(APITestCase):
 
     def test_withdrawal(self):
         """Test succesfully withdrawing money."""
-        url = reverse("payment-list")
+        url = reverse("payment-list", kwargs={"version": "v1"})
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
@@ -699,7 +726,7 @@ class PaymentTests(APITestCase):
 
     def test_pagination(self):
         """Tests for the Payment pagination and MonotonicCursorPagination."""
-        url = reverse("payment-list") + "?limit=10"
+        url = reverse("payment-list", kwargs={"version": "v1"}) + "?limit=10"
         tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         # Check the payments list and make sure it's empty
