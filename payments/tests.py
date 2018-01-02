@@ -1,4 +1,3 @@
-import unittest
 import uuid
 from unittest.mock import patch
 

@@ -1,5 +1,3 @@
-from django.db.models import BooleanField
-
 import django_filters
 from django_filters.widgets import BooleanWidget
 
@@ -77,4 +75,4 @@ class PaymentFilter(django_filters.FilterSet):
 
     class Meta:
         model = models.Payment
-        fields = tuple()
+        fields = ()
