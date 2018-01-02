@@ -20,7 +20,7 @@ class OwnerViewSet(mixins.CreateModelMixin,
     Return a list of all owners registered in the system.
 
     retrieve:
-    Returns the given owner.
+    Returns owner details for the provided name.
 
     This is not particularly useful, since all the information
     the API currentyl handles about the owner is their name,
@@ -38,8 +38,6 @@ class OwnerViewSet(mixins.CreateModelMixin,
     queryset = models.Owner.objects.order_by("name")
     lookup_field = "name"
     serializer_class = serializers.OwnerSerializer
-    filter_backends = (DjangoFilterBackend,)
-    filter_fields = ("name",)
 
     def destroy(self, request, *args, **kwargs):
         """
@@ -79,7 +77,7 @@ class AccountViewSet(mixins.CreateModelMixin,
     Returns a list of all accounts registered in the system.
 
     retrieve:
-    Returns the given account.
+    Returns the account for the given account ID (name).
 
     create:
     Creates a new account for the given owner.
@@ -137,7 +135,7 @@ class PaymentViewSet(mixins.ListModelMixin,
     Returns a list of all payments known to the system.
 
     retrieve:
-    Returns the given payment.
+    Returns the payment details.
 
     create:
     Performs the new payment. See ``create`` method's docstring for details.

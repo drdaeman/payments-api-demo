@@ -233,6 +233,11 @@ class PaymentConfirmSerializer(serializers.ModelSerializer):
             f for f in PaymentSerializer.Meta.fields
             if f != "confirmed"
         )
+        extra_kwargs = {
+            "confirmed": {
+                "help_text": "Must be `true`. This is the only accepted value."
+            }
+        }
 
     def create(self, validated_data):  # pragma: nocover
         """Ensure that this serializer can't be used to create new Payments."""
