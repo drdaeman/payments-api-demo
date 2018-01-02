@@ -86,6 +86,8 @@ Here is a (incomplete) list:
   it is disabled, with project relying on CoreAPI instead.
 - There is no API versioning and "v1/" is just a hardcoded prefix.
 - There is no logging at the moment.
+- Smoke tests are missing. For production, especially for upgrades
+  having health and liveliness checks is important.
 
 There are also some "TODO" comments in the code.
 
