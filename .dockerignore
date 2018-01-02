@@ -44,3 +44,6 @@ Desktop.ini
 Thumbs.db
 .Trash-*
 $RECYCLE.BIN/
+
+# Nix shell configuration
+shell.nix
