@@ -289,12 +289,11 @@ class PaymentTests(APITestCase):
     def test_deposit(self):
         """Test successfully depositing money."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_alice.balance
 
-        uid_tx1 = f"test_deposit/{tuid}/tx1"
+        uid_tx1 = f"test_deposit/tx1"
         res = self.client.post(url, {
             "to_account": self.account_alice.name,
             "amount": "100.00",
@@ -512,9 +511,8 @@ class PaymentTests(APITestCase):
     def test_no_accounts(self):
         """Test that payments without both from and to accounts fail."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
-        uid_tx1 = f"test_no_accounts/{tuid}/tx1"
+        uid_tx1 = f"test_no_accounts/tx1"
         res = self.client.post(url, {
             "amount": "3.14",
             "currency": "USD",
@@ -530,7 +528,6 @@ class PaymentTests(APITestCase):
     def test_currency_match(self):
         """Test matching account and payment currencies."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         # Test our test setup ;)
         self.assertNotEqual(
@@ -540,7 +537,7 @@ class PaymentTests(APITestCase):
         # Try various payment combinations that would've involned
         # different currencies one way or another. Make sure they all fail.
 
-        uid_tx1 = f"test_transfer/{tuid}/tx1"
+        uid_tx1 = f"test_transfer/tx1"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "to_account": self.account_charlie.name,
@@ -550,7 +547,7 @@ class PaymentTests(APITestCase):
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
-        uid_tx2 = f"test_transfer/{tuid}/tx2"
+        uid_tx2 = f"test_transfer/tx2"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "to_account": self.account_charlie.name,
@@ -560,7 +557,7 @@ class PaymentTests(APITestCase):
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
-        uid_tx3 = f"test_transfer/{tuid}/tx3"
+        uid_tx3 = f"test_transfer/tx3"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "to_account": self.account_charlie.name,
@@ -579,12 +576,11 @@ class PaymentTests(APITestCase):
     def test_no_overdraft(self):
         """Test that no overdraft is possible (immediate payment)."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_bob.balance
 
-        uid_tx1 = f"test_no_overdraft/{tuid}/tx1"
+        uid_tx1 = f"test_no_overdraft/tx1"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "amount": str((initial_balance + Money(1000, USD)).amount),
@@ -624,14 +620,13 @@ class PaymentTests(APITestCase):
     def test_transfer(self):
         """Test money transfer between two accounts."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_alice.refresh_from_db(fields=["balance", "currency"])
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
         initial_balance_alice = self.account_alice.balance
         initial_balance_bob = self.account_bob.balance
 
-        uid_tx1 = f"test_transfer/{tuid}/tx1"
+        uid_tx1 = f"test_transfer/tx1"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "to_account": self.account_alice.name,
@@ -668,12 +663,11 @@ class PaymentTests(APITestCase):
     def test_withdrawal(self):
         """Test succesfully withdrawing money."""
         url = reverse("payment-list")
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         self.account_bob.refresh_from_db(fields=["balance", "currency"])
         initial_balance = self.account_bob.balance
 
-        uid_tx1 = f"test_withdrawal/{tuid}/tx1"
+        uid_tx1 = f"test_withdrawal/tx1"
         res = self.client.post(url, {
             "from_account": self.account_bob.name,
             "amount": "10.00",
@@ -703,7 +697,6 @@ class PaymentTests(APITestCase):
     def test_pagination(self):
         """Tests for the Payment pagination and MonotonicCursorPagination."""
         url = reverse("payment-list") + "?limit=10"
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
 
         # Check the payments list and make sure it's empty
         res = self.client.get(url, format="json")
@@ -736,7 +729,7 @@ class PaymentTests(APITestCase):
             models.Payment.objects.create(
                 to_account=self.account_alice,
                 amount=Money(1, USD),
-                unique_id=f"test_pagination/{tuid}/tx{idx}",
+                unique_id=f"test_pagination/tx{idx}",
                 confirmed=False,
             )
 
@@ -778,7 +771,7 @@ class PaymentTests(APITestCase):
             models.Payment.objects.create(
                 to_account=self.account_alice,
                 amount=Money(1, USD),
-                unique_id=f"test_pagination/{tuid}/tx{idx}",
+                unique_id=f"test_pagination/tx{idx}",
                 confirmed=False,
             )
 
@@ -862,7 +855,6 @@ class PaymentTests(APITestCase):
 
     def test_integrity(self):
         """Generate of random payments and do integrity checks."""
-        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
         url = reverse("payment-list")
 
         # Ensure the database is clean. Other tests may have messed with it.
@@ -874,14 +866,14 @@ class PaymentTests(APITestCase):
             "to_account": self.account_alice.name,
             "amount": "10000",
             "currency": "USD",
-            "unique_id": f"test_deposit/{tuid}/tx-init-1"
+            "unique_id": f"test_deposit/tx-init-1"
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         res = self.client.post(url, {
             "to_account": self.account_bob.name,
             "amount": "10000",
             "currency": "USD",
-            "unique_id": f"test_deposit/{tuid}/tx-init-2"
+            "unique_id": f"test_deposit/tx-init-2"
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
@@ -896,7 +888,7 @@ class PaymentTests(APITestCase):
             data = {
                 "amount": str(decimal.Decimal(random.randint(1, 10000)) / 100),
                 "currency": "USD",
-                "unique_id": f"test_deposit/{tuid}/tx{idx}"
+                "unique_id": f"test_deposit/tx{idx}"
             }
             if from_account_name is not None:
                 data["from_account"] = from_account_name
