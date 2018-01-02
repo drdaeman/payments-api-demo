@@ -10,6 +10,7 @@ import coreschema
 from django.utils.encoding import force_text
 
 from rest_framework import pagination
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
 
@@ -213,7 +214,7 @@ class MonotonicCursorPagination(pagination.BasePagination):
         try:
             return Cursor.decode(cursor_text)
         except ValueError:
-            return None
+            raise ValidationError("Bad cursor value")
 
     def get_page_size(self, request) -> int:
         """
@@ -234,7 +235,7 @@ class MonotonicCursorPagination(pagination.BasePagination):
         # We're not using BrowsableAPIRenderer anyway, so not important
         raise NotImplementedError("Page controls are not implemented")
 
-    def get_schema_fields(self, view):
+    def get_schema_fields(self, view):  # pragma: nocover
         """Return list of fields for the CoreAPI schema generator."""
         assert coreapi is not None, \
             "coreapi must be installed to use `get_schema_fields()`"

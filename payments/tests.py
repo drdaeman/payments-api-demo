@@ -1,3 +1,4 @@
+import unittest
 import uuid
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ from moneyed import Money, PHP, USD
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from . import models
+from . import models, pagination
 
 
 # TODO: Add descriptive error messages in all assertion method calls
@@ -720,6 +721,14 @@ class PaymentTests(APITestCase):
         self.assertIsNone(data["links"]["prev"])
         self.assertIsNone(data["links"]["next"])
 
+        # Check that requests with bad cursor values return HTTP 400
+        res = self.client.get(url + "&cursor=BADVALUE", format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        res = self.client.get(url + "&cursor=4pqg77iP", format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        res = self.client.get(url + "&cursor=IT0w", format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
         # Generate a hundred of payments. Their data doesn't really matter.
         for idx in range(0, 100):
             models.Payment.objects.create(
@@ -805,3 +814,46 @@ class PaymentTests(APITestCase):
         self.assertIn("results", data)
         self.assertEqual(data["links"]["prev"], url)
         self.assertEqual(len(data["results"]), 0)
+
+        # Check pagination limiting behavior
+        with patch("payments.views.PaymentViewSet.pagination_class") as p:
+            class LimitedPagination(pagination.MonotonicCursorPagination):
+                page_size = 10
+                max_page_size = 20
+            p.return_value = LimitedPagination()
+
+            # Check that page_size is respected
+            url = reverse("payment-list")
+            res = self.client.get(url, format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+            self.assertEqual(len(data["results"]), 10)
+
+            # Check that asking for invalid limit is not respected
+            res = self.client.get(url + "?limit=0", format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+            self.assertEqual(len(data["results"]), 10)
+
+            res = self.client.get(url + "?limit=test", format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+            self.assertEqual(len(data["results"]), 10)
+
+            # Check that asking for more than max_page_size is not respected
+            res = self.client.get(url + "?limit=100", format="json")
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+            data = res.json()
+            self.assertIn("links", data)
+            self.assertIn("results", data)
+            self.assertEqual(len(data["results"]), 20)
