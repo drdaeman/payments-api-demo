@@ -1,6 +1,9 @@
+import decimal
+import random
 import uuid
 from unittest.mock import patch
 
+from django.db.models import Sum
 from django.urls import reverse
 
 from moneyed import Money, PHP, USD
@@ -856,3 +859,76 @@ class PaymentTests(APITestCase):
             self.assertIn("links", data)
             self.assertIn("results", data)
             self.assertEqual(len(data["results"]), 20)
+
+    def test_integrity(self):
+        """Generate of random payments and do integrity checks."""
+        tuid = str(uuid.uuid4())  # Some safety against concurrent tests
+        url = reverse("payment-list")
+
+        # Ensure the database is clean. Other tests may have messed with it.
+        models.Payment.objects.all().delete()
+        models.Account.objects.all().update(balance=0)
+
+        # Start with some large sum, so deposits and transfers would work
+        res = self.client.post(url, {
+            "to_account": self.account_alice.name,
+            "amount": "10000",
+            "currency": "USD",
+            "unique_id": f"test_deposit/{tuid}/tx-init-1"
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        res = self.client.post(url, {
+            "to_account": self.account_bob.name,
+            "amount": "10000",
+            "currency": "USD",
+            "unique_id": f"test_deposit/{tuid}/tx-init-2"
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        # Generate a thousand random payments
+        for idx in range(0, 1000):
+            from_account_name = random.choice([
+                None, self.account_alice.name, self.account_bob.name
+            ])
+            to_choices = {None, self.account_alice.name, self.account_bob.name}
+            to_choices.remove(from_account_name)
+            to_account_name = random.choice(list(to_choices))
+            data = {
+                "amount": str(decimal.Decimal(random.randint(1, 10000)) / 100),
+                "currency": "USD",
+                "unique_id": f"test_deposit/{tuid}/tx{idx}"
+            }
+            if from_account_name is not None:
+                data["from_account"] = from_account_name
+            if to_account_name is not None:
+                data["to_account"] = to_account_name
+
+            res = self.client.post(url, data, format="json")
+            # Not all payments will succeed - this is normal
+            self.assertIn(res.status_code, (
+                status.HTTP_201_CREATED,
+                status.HTTP_400_BAD_REQUEST
+            ))
+
+        # Now, validate that account balances match the payments
+        self.account_alice.refresh_from_db(fields=["balance", "currency"])
+        alice_in = self.account_alice.payments_to.filter(confirmed=True)\
+            .aggregate(total=Sum("amount"))["total"] or decimal.Decimal(0)
+        alice_out = self.account_alice.payments_from.filter(confirmed=True)\
+            .aggregate(total=Sum("amount"))["total"] or decimal.Decimal(0)
+        self.assertGreaterEqual(alice_in, alice_out)  # No overdraft possible
+        self.assertEqual(
+            self.account_alice.balance,
+            Money(alice_in - alice_out, USD)
+        )
+
+        self.account_bob.refresh_from_db(fields=["balance", "currency"])
+        bob_in = self.account_bob.payments_to.filter(confirmed=True)\
+            .aggregate(total=Sum("amount"))["total"]
+        bob_out = self.account_bob.payments_from.filter(confirmed=True)\
+            .aggregate(total=Sum("amount"))["total"]
+        self.assertGreaterEqual(bob_in, bob_out)  # No overdraft possible
+        self.assertEqual(
+            self.account_bob.balance,
+            Money(bob_in - bob_out, USD)
+        )

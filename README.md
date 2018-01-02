@@ -77,9 +77,6 @@ Here is a (incomplete) list:
 
 - There is no authentication, authorization or access controls.
   Basically, any client can do just about anything.
-- The project could benefit from a QuickCheck-style testing, generating
-  lots of accounts and transactions and then ensuring the balances
-  sum up correctly.
 - The only documentation is auto-generated. Something like MkDocs and
   a good hand-written documentation would be a good idea.
 - Unconfirmed payments do not expire. While it is not possible
