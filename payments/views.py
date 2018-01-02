@@ -23,7 +23,7 @@ class OwnerViewSet(mixins.CreateModelMixin,
     Returns owner details for the provided name.
 
     This is not particularly useful, since all the information
-    the API currentyl handles about the owner is their name,
+    the API currently handles about the owner is their name,
     and this is already present in the URL. Still, this could be
     used for existence checks.
 

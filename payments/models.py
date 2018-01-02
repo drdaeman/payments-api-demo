@@ -103,7 +103,9 @@ class Payment(models.Model):
         else:
             return f"Transfer {amount} from {source} to {destination}"
 
-    def confirm(self, commit=True, from_account=None, to_account=None):
+    def confirm(self, commit: bool = True,
+                from_account: Account = None,
+                to_account: Account = None) -> None:
         """
         Confirm the payment, adjusting the account balances.
 
@@ -111,9 +113,16 @@ class Payment(models.Model):
         Also, if the accounts were not fetched for update you want
         to re-fetch and supply them separately.
 
-        This method may raise ``ValueError`` on various problems.
+        :param commit: Whenever to call `save` on the instance or not.
+            Note, `from_account` and `to_account` are always saved.
+        :param from_account: If specified, the `from_account` to use instead.
+            This is if the `self.from_account` wasn't `select_for_update`d.
+        :param to_account: If specified, the `to_account` to use instead.
+            This is if the `self.to_account` wasn't `select_for_update`d.
+        :raises ValueError: May be raised on various problems.
         """
         if self.confirmed:
+            # TODO: Possibly, use a ValueError subclass AlreadyConfirmedError?
             raise ValueError("Payment is already confirmed")
 
         if from_account is None:

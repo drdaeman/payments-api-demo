@@ -28,12 +28,16 @@ class Cursor(collections.namedtuple("Cursor", "cmp pk")):
     """
 
     @classmethod
-    def decode(cls, text):
+    def decode(cls, text: str) -> "Cursor":
         """
         Decode cursor string and return new instance (or raise ValueError).
 
         It is not recommended to generate encoded strings with anything else
         but the `Cursor.encode` method.
+
+        :param text: An encoded cursor data, as received from client.
+        :return: The decoded Cursor instance (or a subclass).
+        :raises ValueError: In case of any problems with the encoded data
         """
         try:
             padded_text = text + "=" * (-len(text) % 4)
@@ -48,7 +52,7 @@ class Cursor(collections.namedtuple("Cursor", "cmp pk")):
             pk=int(m.group(2))
         )
 
-    def encode(self):
+    def encode(self) -> str:
         """
         Encode the Cursor as a string.
 
@@ -59,10 +63,10 @@ class Cursor(collections.namedtuple("Cursor", "cmp pk")):
                 cmp=self.cmp,
                 pk=self.pk
             ).encode("ascii")
-        ).rstrip(b"=")
+        ).rstrip(b"=").decode("ascii")
 
     @property
-    def cmp_name(self):
+    def cmp_name(self) -> str:
         """Return a comparision name usable with Django QuerySet filters."""
         return {
             ">": "gt",
@@ -194,7 +198,7 @@ class MonotonicCursorPagination(pagination.BasePagination):
             "results": data,
         })
 
-    def get_link(self, cursor):
+    def get_link(self, cursor: Cursor) -> Optional[str]:
         """
         Return a link a page with a specific cursor value encoded.
 
